@@ -1,22 +1,21 @@
-name: FOFA IP
+name: FOFA IP & IPTV 更新
 
 on:
   schedule:
     - cron: "*/15 * * * *"
-  workflow_dispatch:          # 手动触发
+  workflow_dispatch:
 
 jobs:
   fetch-and-push:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4          # 建议升级到 v4
         with:
           persist-credentials: true
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5       # 建议用最新版
         with:
           python-version: "3.11"
 
@@ -25,18 +24,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Install ffmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg & ffprobe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
       - name: Run fofa_fetch.py
         run: python fofa_fetch.py
+
+      # ── 增加调试信息（强烈建议保留，便于排查） ──
+      - name: Debug - show git status & files
+        run: |
+          ls -la
+          echo "=== ip/ 目录内容 ==="
+          ls -la ip/ || true
+          echo "=== 根目录重要文件 ==="
+          ls -la 计数.txt zubo.txt IPTV.txt 2>/dev/null || true
+          git status
 
       - name: Commit and push changes
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@users.noreply.github.com"
-          git add 计数.txt
-          git add ip/*.txt || true
-          git add IPTV.txt || true
-          git commit -m "自动更新：计数、IP文件、IPTV.txt" || echo "⚠️ 无需提交"
-          git push origin main || echo "⚠️ 推送失败"
+
+          # 添加所有可能变化的文件（推荐写法）
+          git add 计数.txt               || true
+          git add zubo.txt               || true    # ← 关键！漏了这一行
+          git add IPTV.txt               || true
+          git add ip/*.txt               || true
+
+          # 只在有实际变更时才 commit
+          git diff --cached --quiet
+          if [ $? -eq 0 ]; then
+            echo "⚠️ 没有实质性变更，跳过提交"
+          else
+            git commit -m "自动更新 $(date '+%Y-%m-%d %H:%M')：计数 + IP文件 + zubo.txt + IPTV.txt"
+            git push origin main || echo "⚠️ 推送失败"
+          fi
