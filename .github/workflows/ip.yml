@@ -2,12 +2,13 @@ name: FOFA IP & IPTV 更新
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch:
+    - cron: "*/15 * * * *"          # 每15分钟运行一次
+  workflow_dispatch:                 # 支持手动触发
 
 jobs:
-  fetch-and-push:
+  fetch-and-generate:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,31 +33,51 @@ jobs:
       - name: Run fofa_fetch.py
         run: python fofa_fetch.py
 
-      - name: Debug - show git status & files
+      # ── 调试信息：确认文件是否生成 ──
+      - name: Debug - List files & git status
         run: |
+          echo "=== 当前工作目录文件列表 ==="
           ls -la
+          echo ""
           echo "=== ip/ 目录内容 ==="
           ls -la ip/ || true
-          echo "=== 根目录重要文件 ==="
+          echo ""
+          echo "=== 根目录关键文件 ==="
           ls -la 计数.txt zubo.txt IPTV.txt 2>/dev/null || true
+          echo ""
+          echo "=== 当前 git status ==="
           git status
 
+      # ── 提交 & 推送 ──
       - name: Commit and push changes
         run: |
+          set +e   # 关闭 shell 自动退出，即使命令失败也继续执行后续步骤
+
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@users.noreply.github.com"
 
-          # 先显式添加所有关键文件（即使不存在也不会报 fatal）
-          git add 计数.txt               2>/dev/null || true
-          git add zubo.txt               2>/dev/null || true
-          git add IPTV.txt               2>/dev/null || true
-          git add ip/*.txt               2>/dev/null || true
+          # 合并所有 add 命令，减少出错点
+          echo "尝试添加文件..."
+          git add 计数.txt zubo.txt IPTV.txt ip/*.txt 2>/dev/null || true
 
-          # 检查是否有实际变更（避免空提交）
+          # 显示添加后的状态（调试用）
+          echo ""
+          echo "=== 添加文件后的 git status ==="
+          git status
+
+          # 只在有实际变更时 commit & push
           git diff --cached --quiet
           if [ $? -eq 0 ]; then
-            echo "⚠️ 工作区没有实质变更，无需 commit & push"
+            echo "⚠️ 没有实质性变更，跳过 commit & push"
           else
             git commit -m "自动更新 $(date '+%Y-%m-%d %H:%M:%S 北京时间')：计数 + IP文件 + zubo.txt + IPTV.txt"
-            git push origin main || echo "⚠️ 推送失败（可能网络/权限问题）"
+            if [ $? -eq 0 ]; then
+              echo "commit 成功，正在推送..."
+              git push origin main || echo "⚠️ 推送失败（可能网络/权限/冲突问题）"
+            else
+              echo "commit 失败，跳过 push"
+            fi
           fi
+
+      # 可选：如果想更激进地强制提交所有变更，可用下面这行替换上面的 git add（测试用）
+      # git add . 2>/dev/null || true
