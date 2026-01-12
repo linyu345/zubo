@@ -231,42 +231,74 @@ def first_stage():
     return run_count
 
 # ===============================
-# 第二阶段
+# 第二阶段 - 推荐加强版写法
+
 def second_stage():
     print("🔔 第二阶段触发：生成 zubo.txt")
     combined_lines = []
+    
     for ip_file in os.listdir(IP_DIR):
         if not ip_file.endswith(".txt"):
             continue
+            
         ip_path = os.path.join(IP_DIR, ip_file)
         rtp_path = os.path.join(RTP_DIR, ip_file)
+        
         if not os.path.exists(rtp_path):
+            print(f"  ⚠️ 找不到对应的 rtp 文件：{rtp_path}")
             continue
 
-        with open(ip_path, encoding="utf-8") as f1, open(rtp_path, encoding="utf-8") as f2:
-            ip_lines = [x.strip() for x in f1 if x.strip()]
-            rtp_lines = [x.strip() for x in f2 if x.strip()]
+        with open(ip_path, encoding="utf-8") as f1, \
+             open(rtp_path, encoding="utf-8") as f2:
+            
+            ip_lines = [x.strip() for x in f1 if x.strip() and not x.strip().startswith('#')]
+            rtp_lines = [x.strip() for x in f2 if x.strip() and not x.strip().startswith('#')]
+            
+            if not ip_lines or not rtp_lines:
+                continue
 
-        if not ip_lines or not rtp_lines:
-            continue
+            for ip_port in ip_lines:
+                for rtp_line in rtp_lines:
+                    if "," not in rtp_line:
+                        continue
+                        
+                    try:
+                        ch_name, rtp_url = rtp_line.split(",", 1)
+                        ch_name = ch_name.strip()
+                        rtp_url = rtp_url.strip()
+                        
+                        # ── 核心防护 ───────────────────────────────
+                        if 'rtp://' in rtp_url:
+                            backend = rtp_url.split('rtp://', 1)[1]
+                            new_url = f"http://{ip_port}/rtp/{backend}"
+                        elif rtp_url.startswith(('http://', 'https://')):
+                            # 如果本来就是 http(s)，可以选择保留原样或按需求处理
+                            new_url = rtp_url  # ← 最安全做法
+                            # 或者 new_url = rtp_url.replace('http://', f'http://{ip_port}/') 等自定义逻辑
+                        else:
+                            # 可能是纯 udp 组播地址，常见处理方式之一：
+                            new_url = f"http://{ip_port}/udp/{rtp_url}"
+                            # 或者直接 continue 跳过
+                            # continue
+                        
+                        combined_lines.append(f"{ch_name},{new_url}")
+                        
+                    except Exception as e:
+                        print(f"  格式异常跳过 → {rtp_line}   ({e})")
+                        continue
 
-        for ip_port in ip_lines:
-            for rtp_line in rtp_lines:
-                if "," not in rtp_line:
-                    continue
-                ch_name, rtp_url = rtp_line.split(",", 1)
-                combined_lines.append(f"{ch_name},http://{ip_port}/rtp/{rtp_url.split('rtp://')[1]}")
-
-    # 去重
+    # 去重（以最终 url 为准）
     unique = {}
     for line in combined_lines:
+        if "," not in line:
+            continue
         url_part = line.split(",", 1)[1]
-        if url_part not in unique:
-            unique[url_part] = line
+        unique[url_part] = line
 
     with open(ZUBO_FILE, "w", encoding="utf-8") as f:
-        for line in unique.values():
+        for line in sorted(unique.values()):
             f.write(line + "\n")
+
     print(f"🎯 第二阶段完成，共 {len(unique)} 条有效 URL")
 
 # ===============================
